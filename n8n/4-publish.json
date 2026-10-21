@@ -1,0 +1,95 @@
+{
+  "name": "Research – publish",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "publish",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "9f57e7d9-9cf4-5a64-8675-273490cd3c34",
+      "name": "Webhook /publish",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        200
+      ],
+      "webhookId": "44458d24-5e97-5a00-8616-486eb19fa79e"
+    },
+    {
+      "parameters": {
+        "jsCode": "// jednoduché úložiště posledních 50 výsledků; nahraď uzlem Notion / Google Sheets / Data Table\nconst data = $getWorkflowStaticData('global');\ndata.reports = data.reports || [];\nconst b = $input.first().json.body || {};\ndata.reports.unshift({ at: new Date().toISOString(), request: b.request, summary: b.summary, top: b.top || [] });\ndata.reports = data.reports.slice(0, 50);\nreturn [{ json: { ok: true, stored: data.reports.length } }];\n"
+      },
+      "id": "92b0124f-3013-5b9a-8143-db61377c71de",
+      "name": "Uložit výsledek",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "reports",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a03da7b0-a75b-50ca-989e-0786b99a9ee3",
+      "name": "Webhook GET /reports",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ],
+      "webhookId": "7725f17c-1c2d-5854-8138-e3e340401797"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nreturn [{ json: { reports: data.reports || [] } }];\n"
+      },
+      "id": "d46d7f11-cba9-54cd-b13a-7970a5fee5a6",
+      "name": "Vypsat výsledky",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook /publish": {
+      "main": [
+        [
+          {
+            "node": "Uložit výsledek",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook GET /reports": {
+      "main": [
+        [
+          {
+            "node": "Vypsat výsledky",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Prague"
+  },
+  "pinData": {}
+}

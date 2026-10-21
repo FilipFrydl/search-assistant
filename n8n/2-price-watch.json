@@ -1,0 +1,278 @@
+{
+  "name": "Research – hlídání ceny",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "watch",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "921865bd-0ad2-5926-961c-1a26574a0062",
+      "name": "Webhook /watch",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        100
+      ],
+      "webhookId": "646515a3-78b0-5693-9dd1-295b2590774c"
+    },
+    {
+      "parameters": {
+        "jsCode": "// sledované položky drží workflow static data (ukládá se jen u aktivního workflow)\nconst data = $getWorkflowStaticData('global');\ndata.watches = data.watches || [];\nconst w = $input.first().json.body || {};\nif (!w.url) return [{ json: { ok: false, error: 'chybí url' } }];\n\nconst entry = {\n  model: w.model || w.url,\n  url: w.url,\n  shop: w.shop || '',\n  currency: w.currency || 'CZK',\n  last_price: Number(w.price) || null,\n  target_price: Number(w.target_price) || null,  // null = hlídat jakýkoli pokles\n  notified_target: false,\n  created: new Date().toISOString(),\n};\nconst existing = data.watches.find(x => x.url === entry.url);\nif (existing) Object.assign(existing, entry); else data.watches.push(entry);\nreturn [{ json: { ok: true, count: data.watches.length, watch: entry } }];\n"
+      },
+      "id": "f62c5666-6d3a-5bc4-b2de-441d5725d37c",
+      "name": "Uložit sledování",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "watches",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "eef7daae-c011-5b9d-a0f4-602bf83ca807",
+      "name": "Webhook GET /watches",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "00a3a23d-9628-5ff1-afdc-69085e8e3e6e"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nreturn [{ json: { watches: data.watches || [] } }];\n"
+      },
+      "id": "07fc3a2c-79dc-540b-b38e-d8fc381e0546",
+      "name": "Vypsat sledování",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "dc39773c-b918-51ac-80f2-a226c0da3a3f",
+      "name": "Každý den 8:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $getWorkflowStaticData('global');\nreturn (data.watches || []).map(w => ({ json: w }));\n"
+      },
+      "id": "d32ba371-5a76-55e2-8cc3-92e0e74eb728",
+      "name": "Sledované položky",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (research-assistant price watch)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 20000,
+          "response": {
+            "response": {
+              "responseFormat": "text",
+              "outputPropertyName": "html"
+            }
+          }
+        }
+      },
+      "id": "1f06053d-6895-5549-9233-d68563b87802",
+      "name": "Stáhnout stránku",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        500
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// '2 790 Kč', '2.790,-', '2790 CZK' -> 2790\nconst priceRe = /(\\d{1,3}(?:[  .]\\d{3})+|\\d{3,6})(?:,\\d{1,2}|,-)?\\s*(?:Kč|CZK|,-)/i;\nconst parsePrice = (text) => {\n  const m = String(text || '').match(priceRe);\n  return m ? Number(m[1].replace(/[\\s.]/g, '')) : null;\n};\n\n// cena ze stránky produktu: JSON-LD / meta tagy, jinak první \"xxx Kč\"\nconst extractPrice = (html) => {\n  const patterns = [\n    /\"price\"\\s*:\\s*\"?(\\d+(?:[.,]\\d+)?)\"?/i,\n    /itemprop=[\"']price[\"'][^>]*content=[\"'](\\d+(?:[.,]\\d+)?)/i,\n    /property=[\"']product:price:amount[\"'][^>]*content=[\"'](\\d+(?:[.,]\\d+)?)/i,\n  ];\n  for (const re of patterns) {\n    const m = html.match(re);\n    if (m) return Number(m[1].replace(',', '.'));\n  }\n  return parsePrice(html.replace(/<[^>]+>/g, ' '));\n};\n\nconst data = $getWorkflowStaticData('global');\nconst watches = $('Sledované položky').all().map(i => i.json);\nconst now = new Date().toISOString();\n\nreturn $input.all().map((item, i) => {\n  const w = watches[i];\n  const price = extractPrice(String(item.json.html || ''));\n  const previous = w.last_price;\n  const belowTarget = price && w.target_price && price <= w.target_price && !w.notified_target;\n  const dropped = Boolean(price && ((previous && price < previous) || belowTarget));\n\n  const stored = (data.watches || []).find(x => x.url === w.url);\n  if (stored && price) {\n    stored.last_price = price;\n    stored.checked = now;\n    if (belowTarget) stored.notified_target = true;\n  }\n  return { json: { ...w, price, previous, dropped } };\n});\n"
+      },
+      "id": "d34fdab2-dfa0-5f0a-bc3d-a237a410345b",
+      "name": "Zjistit cenu",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "b5f0cf9c-8f53-56f5-a7b4-a9a1e35520ff",
+              "leftValue": "={{ $json.dropped }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "809d45cd-9e0c-5d1a-96f5-2bff0c6e0aa1",
+      "name": "Zlevnilo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        940,
+        500
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "research-bot@example.com",
+        "toEmail": "ty@example.com",
+        "subject": "={{ $json.model }} zlevnil na {{ $json.price }} {{ $json.currency }}",
+        "emailFormat": "text",
+        "text": "={{ $json.model }} teď stojí {{ $json.price }} {{ $json.currency }} (předtím {{ $json.previous ?? '?' }}).\n{{ $json.url }}",
+        "options": {}
+      },
+      "id": "c6763632-3706-55d2-8a40-5859192c8940",
+      "name": "Poslat e-mail",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        1380,
+        480
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook /watch": {
+      "main": [
+        [
+          {
+            "node": "Uložit sledování",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook GET /watches": {
+      "main": [
+        [
+          {
+            "node": "Vypsat sledování",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Každý den 8:00": {
+      "main": [
+        [
+          {
+            "node": "Sledované položky",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sledované položky": {
+      "main": [
+        [
+          {
+            "node": "Stáhnout stránku",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stáhnout stránku": {
+      "main": [
+        [
+          {
+            "node": "Zjistit cenu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zjistit cenu": {
+      "main": [
+        [
+          {
+            "node": "Zlevnilo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Zlevnilo?": {
+      "main": [
+        [
+          {
+            "node": "Poslat e-mail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Prague"
+  },
+  "pinData": {}
+}

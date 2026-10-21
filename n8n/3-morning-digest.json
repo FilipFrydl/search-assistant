@@ -1,0 +1,116 @@
+{
+  "name": "Research – ranní digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 7
+            }
+          ]
+        }
+      },
+      "id": "ee855c4a-f070-53d9-89ef-611d07c86555",
+      "name": "Každý den 7:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// témata, která má asistent každé ráno projít\nconst topics = [\n  'Hledám Nike běžecké tenisky na asfalt, velikost EU 43, do 3 000 Kč. Preferuju tlumení a delší vzdálenosti.',\n];\nreturn topics.map(topic => ({ json: { topic } }));\n"
+      },
+      "id": "f06a7c60-ac67-5cd3-85ff-c1dd7f8b10c2",
+      "name": "Témata",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8000/v1/chat/completions",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'research-assistant', stream: false, interactive: false, messages: [{ role: 'user', content: $json.topic }] }) }}",
+        "options": {
+          "timeout": 900000
+        }
+      },
+      "id": "931e69f5-9ccd-5510-84a0-ed8f87b11245",
+      "name": "LangGraph",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "research-bot@example.com",
+        "toEmail": "ty@example.com",
+        "subject": "=Ranní research: {{ $('Témata').item.json.topic.slice(0, 60) }}",
+        "emailFormat": "text",
+        "text": "={{ $json.choices[0].message.content }}",
+        "options": {}
+      },
+      "id": "2fcb7b1b-f98e-5cc4-92db-7727f36d54b3",
+      "name": "Poslat digest",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        660,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Každý den 7:00": {
+      "main": [
+        [
+          {
+            "node": "Témata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Témata": {
+      "main": [
+        [
+          {
+            "node": "LangGraph",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LangGraph": {
+      "main": [
+        [
+          {
+            "node": "Poslat digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Prague"
+  },
+  "pinData": {}
+}

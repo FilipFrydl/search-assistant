@@ -1,0 +1,55 @@
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
+    environment:
+      # LangGraph backend běžící na hostiteli (port 8000)
+      - OPENAI_API_BASE_URL=http://host.docker.internal:8000/v1
+      - OPENAI_API_KEY=dummy-key
+      - ENABLE_OLLAMA_API=false
+      # jeden běh grafu přes `claude -p` trvá i několik minut
+      - AIOHTTP_CLIENT_TIMEOUT=900
+      # posílá backendu X-OpenWebUI-Chat-Id -> backend ví, ke kterému chatu odpověď patří
+      - ENABLE_FORWARD_USER_INFO_HEADERS=true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - open-webui:/app/backend/data
+    restart: unless-stopped
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - GENERIC_TIMEZONE=Europe/Prague
+      - TZ=Europe/Prague
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      # workflow k importu: docker compose exec n8n n8n import:workflow --separate --input=/workflows
+      - ../n8n:/workflows:ro
+    restart: unless-stopped
+
+  # --- volitelné ---
+  searxng:
+    image: searxng/searxng
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./searxng:/etc/searxng
+    restart: unless-stopped
+
+  # ollama:   # na Macu raději nativní aplikace, viz níže
+  #   image: ollama/ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama:/root/.ollama
+
+volumes:
+  open-webui:
+  n8n_data:
+  # ollama:
